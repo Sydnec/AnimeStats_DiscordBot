@@ -1,6 +1,6 @@
 {
   "name": "animestats-discordbot",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Bot Discord qui publie chaque mois des statistiques de visionnage AniList.",
   "type": "module",
   "main": "src/index.js",

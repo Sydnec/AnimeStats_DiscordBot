@@ -9,4 +9,5 @@ assert.deepStrictEqual(parseMask('***'), { daily: null, monthly: null, yearly: n
 // applyMask
 assert.deepStrictEqual(applyMask({ daily: false, monthly: true, yearly: false }, '1*0'), { daily: true, monthly: true, yearly: false });
 assert.deepStrictEqual(applyMask(undefined, '***'), { daily: false, monthly: false, yearly: false });
-console.log('mask tests passed');
+import { logger } from '../src/lib/logger.js';
+logger.info('mask tests passed');

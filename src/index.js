@@ -1,4 +1,5 @@
 import { Client, GatewayIntentBits, REST, Routes } from "discord.js";
+import { logger } from "./lib/logger.js";
 import cron from "node-cron";
 import dotenv from "dotenv";
 import * as db from "./db.js";
@@ -13,7 +14,7 @@ dotenv.config();
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
 
 if (!DISCORD_TOKEN) {
-  console.error("Missing config in .env (DISCORD_TOKEN required)");
+  logger.error("Missing config in .env (DISCORD_TOKEN required)");
   process.exit(1);
 }
 
@@ -30,9 +31,8 @@ function computeStats(data, startDate, endDate) {
   let totalMinutes = 0;
   let totalEpisodes = 0;
   const dailyData = {};
-  const titleCounts = {}; // title -> episodes comptés pendant la période
-
-  // Parcours des listes et entrées AniList
+  const titleCounts = {};
+  const lastProgressByAnime = {};
   (
     (data.data &&
       data.data.MediaListCollection &&
@@ -43,16 +43,18 @@ function computeStats(data, startDate, endDate) {
       if (!entry || !entry.updatedAt) return;
       const updatedAt = new Date(entry.updatedAt * 1000);
       if (updatedAt >= startDate && updatedAt <= endDate) {
-        const epCount = entry.progress || 0; // nombre d'épisodes.
-        const durationPerEp = (entry.media && entry.media.duration) || 24; // minutes par épisode
+        const animeId = entry.media && entry.media.id;
+        const prevProgress = lastProgressByAnime[animeId] || 0;
+        const currentProgress = entry.progress || 0;
+        let epCount = currentProgress - prevProgress;
+        if (epCount <= 0) epCount = 1;
+        lastProgressByAnime[animeId] = currentProgress;
+        const durationPerEp = (entry.media && entry.media.duration) || 24;
         const minutes = epCount * durationPerEp;
-
         totalMinutes += minutes;
         totalEpisodes += epCount;
-
         const day = updatedAt.toISOString().split("T")[0];
         dailyData[day] = (dailyData[day] || 0) + minutes;
-
         const title =
           (entry.media &&
             entry.media.title &&
@@ -187,30 +189,31 @@ async function sendStatsForUser(
 
     // Préparer le texte récapitulatif (texte uniquement, pas de fichier)
     let titlesList;
+    let content;
     if (!titles || titles.length === 0) {
       titlesList = "Aucun anime enregistré";
+      content = `${title}\n⏱️ Temps total : **${(totalMinutes / 60).toFixed(2)} h**\n🎬 Épisodes regardés : **${totalEpisodes}**\n\n${titlesList}`;
     } else {
-      // trier par count décroissant
       const sorted = titles.slice().sort((a, b) => b.count - a.count);
-      titlesList = `# Animes :\n${sorted
-        .map((t) => `- ${t.title} (${t.count})`)
-        .join("\n")}`;
-    }
-    let content;
-    if (period === "day") {
-      // daily summary: do not include 'top day'
-      content = `${title}\n⏱️ Temps total : **${(totalMinutes / 60).toFixed(
-        2
-      )} h**\n🎬 Épisodes regardés : **${totalEpisodes}**\n\n${titlesList}`;
-    } else {
-      const topDayText = topDay
-        ? `${new Intl.DateTimeFormat("fr-FR", { dateStyle: "medium" }).format(
-            new Date(topDay)
-          )} (${(dailyData[topDay] / 60).toFixed(2)} h)`
-        : "N/A";
-      content = `${title}\n⏱️ Temps total : **${(totalMinutes / 60).toFixed(
-        2
-      )} h**\n🎬 Épisodes regardés : **${totalEpisodes}**\n🔥 Jour le plus actif : **${topDayText}**\n\n${titlesList}`;
+      let maxAnimes = 15;
+      let valid = false;
+      do {
+        const truncated = sorted.slice(0, maxAnimes);
+        titlesList = `# Animes (top ${maxAnimes}) :\n${truncated.map((t) => `- ${t.title} (${t.count})`).join("\n")}`;
+        if (sorted.length > maxAnimes) {
+          titlesList += `\n...et ${sorted.length - maxAnimes} autres`;
+        }
+        let topDayText = topDay
+          ? `${new Intl.DateTimeFormat("fr-FR", { dateStyle: "medium" }).format(new Date(topDay))} (${(dailyData[topDay] / 60).toFixed(2)} h)`
+          : "N/A";
+        if (period === "day") {
+          content = `${title}\n⏱️ Temps total : **${(totalMinutes / 60).toFixed(2)} h**\n🎬 Épisodes regardés : **${totalEpisodes}**\n\n${titlesList}`;
+        } else {
+          content = `${title}\n⏱️ Temps total : **${(totalMinutes / 60).toFixed(2)} h**\n🎬 Épisodes regardés : **${totalEpisodes}**\n🔥 Jour le plus actif : **${topDayText}**\n\n${titlesList}`;
+        }
+        if (content.length <= 4000) valid = true;
+        else maxAnimes--;
+      } while (!valid && maxAnimes > 0);
     }
 
     // Send DM to the user
@@ -219,7 +222,7 @@ async function sendStatsForUser(
 
     // pas de fichier à nettoyer
   } catch (err) {
-    console.error("Erreur lors de l'envoi des stats :", err);
+  logger.error("Erreur lors de l'envoi des stats :", err);
   }
 }
 
@@ -268,43 +271,52 @@ export async function sendStatsForUserWithDays(
       computeStats(data, startDate, endDate);
 
     let titlesList;
+    let content;
     if (!titles || titles.length === 0) {
       titlesList = "Aucun anime enregistré";
+      content = `📈 Récapitulatif - ${new Intl.DateTimeFormat("fr-FR", {
+        dateStyle: "medium",
+      }).format(startDate)} → ${new Intl.DateTimeFormat("fr-FR", {
+        dateStyle: "medium",
+      }).format(endDate)}\n⏱️ Temps total : **${(totalMinutes / 60).toFixed(2)} h**\n🎬 Épisodes regardés : **${totalEpisodes}**\n\n${titlesList}`;
     } else {
       const sorted = titles.slice().sort((a, b) => b.count - a.count);
-      titlesList = `# Animes :\n${sorted
-        .map((t) => `- ${t.title} (${t.count})`)
-        .join("\n")}`;
+      let maxAnimes = 15;
+      let valid = false;
+      do {
+        const truncated = sorted.slice(0, maxAnimes);
+        titlesList = `# Animes (top ${maxAnimes}) :\n${truncated.map((t) => `- ${t.title} (${t.count})`).join("\n")}`;
+        if (sorted.length > maxAnimes) {
+          titlesList += `\n...et ${sorted.length - maxAnimes} autres`;
+        }
+        content = `📈 Récapitulatif - ${new Intl.DateTimeFormat("fr-FR", {
+          dateStyle: "medium",
+        }).format(startDate)} → ${new Intl.DateTimeFormat("fr-FR", {
+          dateStyle: "medium",
+        }).format(endDate)}\n⏱️ Temps total : **${(totalMinutes / 60).toFixed(2)} h**\n🎬 Épisodes regardés : **${totalEpisodes}**\n`;
+        if (days > 1) {
+          const topDayText = topDay
+            ? `${new Intl.DateTimeFormat("fr-FR", { dateStyle: "medium" }).format(new Date(topDay))} (${(dailyData[topDay] / 60).toFixed(2)} h)`
+            : "N/A";
+          content += `🔥 Jour le plus actif : **${topDayText}**\n`;
+        }
+        content += `\n${titlesList}`;
+        if (content.length <= 4000) valid = true;
+        else maxAnimes--;
+      } while (!valid && maxAnimes > 0);
     }
-
-    let content = `📈 Récapitulatif - ${new Intl.DateTimeFormat("fr-FR", {
-      dateStyle: "medium",
-    }).format(startDate)} → ${new Intl.DateTimeFormat("fr-FR", {
-      dateStyle: "medium",
-    }).format(endDate)}\n⏱️ Temps total : **${(totalMinutes / 60).toFixed(
-      2
-    )} h**\n🎬 Épisodes regardés : **${totalEpisodes}**\n`;
-    if (days > 1) {
-      const topDayText = topDay
-        ? `${new Intl.DateTimeFormat("fr-FR", { dateStyle: "medium" }).format(
-            new Date(topDay)
-          )} (${(dailyData[topDay] / 60).toFixed(2)} h)`
-        : "N/A";
-      content += `🔥 Jour le plus actif : **${topDayText}**\n`;
-    }
-    content += `\n${titlesList}`;
 
     const user = await client.users.fetch(String(discordUserId));
     await user.send({ content });
   } catch (e) {
-    console.error("sendStatsForUserWithDays error", e);
+  logger.error("sendStatsForUserWithDays error", e);
     throw e;
   }
 }
 
 // Événement prêt
 client.once("clientReady", () => {
-  console.log(`✅ Connecté en tant que ${client.user.tag}`);
+  logger.info(`✅ Connecté en tant que ${client.user.tag}`);
   // Load command modules from src/commands dynamically
   const rest = new REST({ version: "10" }).setToken(DISCORD_TOKEN);
   const commandsDir = path.join(
@@ -336,7 +348,7 @@ client.once("clientReady", () => {
             }
             if (name) {
               commandsMap.set(name, mod);
-              console.log(`Loaded command: ${name} (file: ${f})`);
+              logger.info(`Loaded command: ${name} (file: ${f})`);
             } else {
               // If no name could be determined, still log filename for debug
               console.log(
@@ -344,19 +356,19 @@ client.once("clientReady", () => {
               );
             }
           } else {
-            console.log(`Skipping ${f}: missing data or execute export`);
+            logger.warn(`Skipping ${f}: missing data or execute export`);
           }
         } catch (e) {
-          console.error("Error importing command", f, e);
+          logger.error("Error importing command", f, e);
         }
       }
       const commands = commandModules.map((m) => m.data.toJSON());
       await rest.put(Routes.applicationCommands(client.user.id), {
         body: commands,
       });
-      console.log("Slash commands registered (dynamic)");
+  logger.info("Slash commands registered (dynamic)");
     } catch (e) {
-      console.error("Failed loading commands directory", e);
+  logger.error("Failed loading commands directory", e);
     }
   })();
 
@@ -368,7 +380,7 @@ client.once("clientReady", () => {
       try {
         await sendStatsForUser("day", row.user_id, row.anilist_username);
       } catch (e) {
-        console.error("Failed sending daily to", row.user_id, e);
+  logger.error("Failed sending daily to", row.user_id, e);
       }
     }
   });
@@ -380,7 +392,7 @@ client.once("clientReady", () => {
       try {
         await sendStatsForUser("month", row.user_id, row.anilist_username);
       } catch (e) {
-        console.error("Failed sending month to", row.user_id, e);
+  logger.error("Failed sending month to", row.user_id, e);
       }
     }
   });
@@ -392,7 +404,7 @@ client.once("clientReady", () => {
       try {
         await sendStatsForUser("year", row.user_id, row.anilist_username);
       } catch (e) {
-        console.error("Failed sending year to", row.user_id, e);
+  logger.error("Failed sending year to", row.user_id, e);
       }
     }
   });
@@ -415,7 +427,7 @@ client.on("interactionCreate", async (interaction) => {
     }
     await cmd.execute(interaction);
   } catch (e) {
-    console.error("interaction handler error", e);
+  logger.error("interaction handler error", e);
     if (interaction.replied || interaction.deferred) {
       try {
         await interaction.followUp({
