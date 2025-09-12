@@ -1,0 +1,21 @@
+{
+  "name": "animestats-discordbot",
+  "version": "1.0.0",
+  "description": "Bot Discord qui publie chaque mois des statistiques de visionnage AniList.",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "NODE_ENV=development node src/index.js",
+    "test": "node test/mask.test.js && node test/stats.test.js"
+  },
+  "keywords": ["discord", "anilist", "chartjs", "bot"],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "dotenv": "^16.3.1",
+    "node-cron": "^3.0.2",
+  "discord.js": "^14.11.0",
+  "better-sqlite3": "^8.1.0"
+  }
+}
