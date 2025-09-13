@@ -1,5 +1,7 @@
+import { fetchAniListActivitiesPaginated } from './lib/anilist.js';
 import { Client, GatewayIntentBits, REST, Routes } from "discord.js";
 import { logger } from "./lib/logger.js";
+import { computeStatsFromAniListData } from "./lib/stats.js";
 import cron from "node-cron";
 import dotenv from "dotenv";
 import * as db from "./db.js";
@@ -26,65 +28,6 @@ const commandsMap = new Map();
 
 // Génération d'images supprimée — on n'envoie que des récapitulatifs textuels.
 
-// Fonction pour calculer les stats sur une période
-function computeStats(data, startDate, endDate) {
-  let totalMinutes = 0;
-  let totalEpisodes = 0;
-  const dailyData = {};
-  const titleCounts = {};
-  const lastProgressByAnime = {};
-  (
-    (data.data &&
-      data.data.MediaListCollection &&
-      data.data.MediaListCollection.lists) ||
-    []
-  ).forEach((list) => {
-    (list.entries || []).forEach((entry) => {
-      if (!entry || !entry.updatedAt) return;
-      const updatedAt = new Date(entry.updatedAt * 1000);
-      if (updatedAt >= startDate && updatedAt <= endDate) {
-        const animeId = entry.media && entry.media.id;
-        const prevProgress = lastProgressByAnime[animeId] || 0;
-        const currentProgress = entry.progress || 0;
-        let epCount = currentProgress - prevProgress;
-        if (epCount <= 0) epCount = 1;
-        lastProgressByAnime[animeId] = currentProgress;
-        const durationPerEp = (entry.media && entry.media.duration) || 24;
-        const minutes = epCount * durationPerEp;
-        totalMinutes += minutes;
-        totalEpisodes += epCount;
-        const day = updatedAt.toISOString().split("T")[0];
-        dailyData[day] = (dailyData[day] || 0) + minutes;
-        const title =
-          (entry.media &&
-            entry.media.title &&
-            (entry.media.title.romaji ||
-              entry.media.title.english ||
-              entry.media.title.native)) ||
-          "Titre inconnu";
-        titleCounts[title] = (titleCounts[title] || 0) + epCount;
-      }
-    });
-  });
-
-  // Trouver le jour avec le plus de minutes
-  let topDay = null;
-  let topMinutes = 0;
-  Object.entries(dailyData).forEach(([day, mins]) => {
-    if (mins > topMinutes) {
-      topMinutes = mins;
-      topDay = day;
-    }
-  });
-
-  // Transformer titleCounts en tableau d'objets { title, count }
-  const titles = Object.entries(titleCounts).map(([title, count]) => ({
-    title,
-    count,
-  }));
-
-  return { totalMinutes, totalEpisodes, dailyData, topDay, titles };
-}
 
 // Fonction principale : envoie les stats
 async function sendStatsForUser(
@@ -94,41 +37,9 @@ async function sendStatsForUser(
 ) {
   try {
     // fetch using the provided AniList username if available, else fallback to global
-    const username = anilistUsername || ANILIST_USERNAME;
-    if (!username) throw new Error("AniList username not provided");
-    // fetchAniListData currently uses the global ANILIST_USERNAME; adjust by calling a local fetch with variable
-    const query = `
-    query ($userName: String) {
-      MediaListCollection(userName: $userName, type: ANIME) {
-        lists {
-          entries {
-            media {
-              title {
-                romaji
-                english
-                native
-              }
-              duration
-            }
-            progress
-            updatedAt
-          }
-        }
-      }
-    }
-  `;
-    const variables = { userName: username };
 
-    const res = await fetch("https://graphql.anilist.co", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json",
-      },
-      body: JSON.stringify({ query, variables }),
-    });
-
-    const data = await res.json();
+  if (!anilistUsername) throw new Error("AniList username not provided");
+  const data = await fetchAniListActivitiesPaginated(anilistUsername);
 
     const now = new Date();
     let startDate, endDate;
@@ -185,7 +96,7 @@ async function sendStatsForUser(
     }
 
     const { totalMinutes, totalEpisodes, dailyData, topDay, titles } =
-      computeStats(data, startDate, endDate);
+      computeStatsFromAniListData(data, startDate, endDate);
 
     // Préparer le texte récapitulatif (texte uniquement, pas de fichier)
     let titlesList;
@@ -227,48 +138,16 @@ async function sendStatsForUser(
 }
 
 // helper: send stats for the last N days
-export async function sendStatsForUserWithDays(
-  days,
-  discordUserId,
-  anilistUsername
-) {
+export async function sendStatsForUserWithDays(days, discordUserId, anilistUsername) {
   try {
     const now = new Date();
     const endDate = now;
     const startDate = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
 
-    // fetch data (duplicate of logic inside sendStatsForUser but with start/end injection)
-    const username = anilistUsername || null;
-    if (!username) throw new Error("AniList username not provided");
-    const query = `
-    query ($userName: String) {
-      MediaListCollection(userName: $userName, type: ANIME) {
-        lists {
-          entries {
-            media {
-              title { romaji english native }
-              duration
-            }
-            progress
-            updatedAt
-          }
-        }
-      }
-    }
-  `;
-    const variables = { userName: username };
-    const res = await fetch("https://graphql.anilist.co", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json",
-      },
-      body: JSON.stringify({ query, variables }),
-    });
-    const data = await res.json();
-
+  if (!anilistUsername) throw new Error("AniList username not provided");
+  const data = await fetchAniListActivitiesPaginated(anilistUsername);
     const { totalMinutes, totalEpisodes, dailyData, topDay, titles } =
-      computeStats(data, startDate, endDate);
+      computeStatsFromAniListData(data, startDate, endDate);
 
     let titlesList;
     let content;
@@ -351,7 +230,7 @@ client.once("clientReady", () => {
               logger.info(`Loaded command: ${name} (file: ${f})`);
             } else {
               // If no name could be determined, still log filename for debug
-              console.log(
+              logger.warn(
                 `Loaded command module without name property (file: ${f})`
               );
             }
@@ -448,3 +327,5 @@ client.on("interactionCreate", async (interaction) => {
 
 // Lancement du bot
 client.login(DISCORD_TOKEN);
+
+// ... AniList fetching is handled by `src/lib/anilist.js`

@@ -43,8 +43,8 @@ export async function execute(interaction) {
     } else {
   await interaction.followUp({ content: 'Fonction de récap non disponible.', flags: 64 });
     }
-  } catch (e) {
-    console.error('recap command error', e);
+    } catch (e) {
+    logger.error('recap command error', e);
   await interaction.reply({ content: 'Erreur lors de la requête de récap.', flags: 64 });
   }
 }

@@ -53,7 +53,7 @@ export async function execute(interaction) {
   try {
     ok = await validateAniListUsername(username);
   } catch (e) {
-    console.error('AniList validation error', e);
+    logger.error('AniList validation error', e);
   }
   if (!ok) {
   await interaction.reply({ content: 'Pseudo AniList invalide ou introuvable.', flags: 64 });
@@ -66,7 +66,7 @@ export async function execute(interaction) {
     await db.addOrUpdateFollower(interaction.user.id, username, { daily, monthly, yearly }, true);
   await interaction.reply({ content: `Vous êtes suivi pour ${username} (daily:${daily}, monthly:${monthly}, yearly:${yearly}).`, flags: 64 });
   } catch (e) {
-    console.error('follow command error', e);
+    logger.error('follow command error', e);
   await interaction.reply({ content: 'Erreur lors de l enregistrement. Voir logs.', flags: 64 });
   }
 

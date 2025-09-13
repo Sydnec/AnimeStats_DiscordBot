@@ -1,34 +1,108 @@
+import { logger } from "./logger.js";
 export function computeStatsFromAniListData(data, startDate, endDate) {
-  // reuse logic from index.js but simple and testable
   let totalMinutes = 0;
   let totalEpisodes = 0;
   const dailyData = {};
   const titleCounts = {};
 
-  // Pour chaque entrée, on ne compte que la progression depuis la dernière mise à jour
-  const lastProgressByAnime = {};
-  ((data.data && data.data.MediaListCollection && data.data.MediaListCollection.lists) || []).forEach(list => {
-    (list.entries || []).forEach(entry => {
-      if (!entry || !entry.updatedAt) return;
-      const updatedAt = new Date(entry.updatedAt * 1000);
-      if (updatedAt >= startDate && updatedAt <= endDate) {
-        const animeId = entry.media && entry.media.id;
-        const prevProgress = lastProgressByAnime[animeId] || 0;
-        const currentProgress = entry.progress || 0;
-        let epCount = currentProgress - prevProgress;
-        if (epCount <= 0) epCount = 1; // fallback: au moins 1 épisode vu
-        lastProgressByAnime[animeId] = currentProgress;
-        const durationPerEp = (entry.media && entry.media.duration) || 24;
-        const minutes = epCount * durationPerEp;
-        totalMinutes += minutes;
-        totalEpisodes += epCount;
-        const day = updatedAt.toISOString().split('T')[0];
-        dailyData[day] = (dailyData[day] || 0) + minutes;
-        const title = (entry.media && entry.media.title && (entry.media.title.romaji || entry.media.title.english || entry.media.title.native)) || 'Titre inconnu';
-        titleCounts[title] = (titleCounts[title] || 0) + epCount;
+  // Case 1: AniList Activities (Page.activities)
+  const activities = (data && data.data && data.data.Page && data.data.Page.activities) || [];
+  if (activities.length > 0) {
+    activities.forEach(activity => {
+      logger.debug(`[ACTIVITY] ${activity.media?.title?.romaji || activity.media?.title?.english || activity.media?.title?.native || "Titre inconnu"} | progress: ${activity.progress} | createdAt: ${activity.createdAt} | date: ${new Date(activity.createdAt * 1000).toISOString()}`);
+      if (!activity || !activity.createdAt) return;
+      const date = new Date(activity.createdAt * 1000);
+      if (date < startDate || date > endDate) return;
+
+      // progress peut être "3", "3-4", etc. -> on parse pour avoir le nombre d'ep
+      let epCount = 1;
+      if (activity.progress) {
+        const match = String(activity.progress).match(/(\d+)(?:-(\d+))?/);
+        if (match) {
+          const start = parseInt(match[1], 10);
+          const end = match[2] ? parseInt(match[2], 10) : start;
+          epCount = Math.max(1, end - start + 1);
+        }
       }
+
+      const durationPerEp = (activity.media && activity.media.duration) || 24;
+      const minutes = epCount * durationPerEp;
+
+      totalMinutes += minutes;
+      totalEpisodes += epCount;
+
+      const day = date.toISOString().split('T')[0];
+      dailyData[day] = (dailyData[day] || 0) + minutes;
+
+      const title = activity.media?.title?.romaji ||
+                    activity.media?.title?.english ||
+                    activity.media?.title?.native ||
+                    "Titre inconnu";
+      titleCounts[title] = (titleCounts[title] || 0) + epCount;
     });
-  });
+  } else {
+    // Case 2: MediaListCollection snapshot entries (older approach / tests)
+    const lists = (data && data.data && data.data.MediaListCollection && data.data.MediaListCollection.lists) || [];
+    // Flatten entries across lists
+    const entries = [];
+    for (const l of lists) {
+      if (l && Array.isArray(l.entries)) {
+        for (const e of l.entries) entries.push(e);
+      }
+    }
+
+    // Group by media id
+    const byMedia = new Map();
+    for (const e of entries) {
+      const id = e && e.media && e.media.id;
+      if (typeof id === 'undefined') continue;
+      if (!byMedia.has(id)) byMedia.set(id, []);
+      byMedia.get(id).push(e);
+    }
+
+    // For each media, sort by updatedAt asc and compute counts
+    for (const [id, arr] of byMedia.entries()) {
+      arr.sort((a, b) => (a.updatedAt || 0) - (b.updatedAt || 0));
+      let prevProgress = null;
+      let title = null;
+      let durationPerEp = 24;
+      for (const entry of arr) {
+        const updatedAt = entry.updatedAt; // seconds
+        if (!updatedAt) continue;
+        const date = new Date(updatedAt * 1000);
+        if (date < startDate || date > endDate) {
+          // Even if outside range, we should keep prevProgress updated for later deltas
+          prevProgress = (typeof entry.progress === 'number') ? entry.progress : parseInt(entry.progress || '0', 10) || prevProgress;
+          if (!title) title = entry.media && (entry.media.title && (entry.media.title.romaji || entry.media.title.english || entry.media.title.native));
+          if (entry.media && entry.media.duration) durationPerEp = entry.media.duration;
+          continue;
+        }
+
+        const progress = (typeof entry.progress === 'number') ? entry.progress : parseInt(entry.progress || '0', 10) || 0;
+        if (title === null) title = entry.media && (entry.media.title && (entry.media.title.romaji || entry.media.title.english || entry.media.title.native)) || "Titre inconnu";
+        if (entry.media && entry.media.duration) durationPerEp = entry.media.duration;
+
+        let add = 0;
+        if (prevProgress === null) {
+          // First snapshot we see in the period -> count the progress value itself
+          add = progress;
+        } else {
+          add = Math.max(0, progress - prevProgress);
+        }
+
+        if (add > 0) {
+          const minutes = add * durationPerEp;
+          totalEpisodes += add;
+          totalMinutes += minutes;
+          const day = date.toISOString().split('T')[0];
+          dailyData[day] = (dailyData[day] || 0) + minutes;
+          titleCounts[title] = (titleCounts[title] || 0) + add;
+        }
+
+        prevProgress = progress;
+      }
+    }
+  }
 
   let topDay = null;
   let topMinutes = 0;
@@ -37,6 +111,7 @@ export function computeStatsFromAniListData(data, startDate, endDate) {
   });
 
   const titles = Object.entries(titleCounts).map(([title, count]) => ({ title, count }));
+
   return { totalMinutes, totalEpisodes, dailyData, topDay, titles };
 }
 
