@@ -1,13 +1,13 @@
 {
   "name": "animestats-discordbot",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Bot Discord qui publie chaque mois des statistiques de visionnage AniList.",
   "type": "module",
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",
     "dev": "NODE_ENV=development node src/index.js",
-  "test": "node test/mask.test.js && node test/stats.test.js",
+  "test": "node test/mask.test.js && node test/stats.test.js && node test/stats.activities.duplicate.test.js && node test/stats.progress.range.test.js",
   "lint": "eslint src test --ext .js --fix"
   },
   "keywords": [
