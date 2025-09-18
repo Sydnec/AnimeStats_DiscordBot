@@ -252,17 +252,6 @@ client.once("clientReady", () => {
   })();
 
   // Cron jobs: iterate DB and send per-frequency
-  // daily at 09:00 -> send 'day'
-  cron.schedule("0 9 * * *", async () => {
-    const rows = db.listFollowersByFrequency("daily");
-    for (const row of rows) {
-      try {
-        await sendStatsForUser("day", row.user_id, row.anilist_username);
-      } catch (e) {
-  logger.error("Failed sending daily to", row.user_id, e);
-      }
-    }
-  });
 
   // monthly on 1st at 10:00 -> send 'month'
   cron.schedule("0 10 1 * *", async () => {

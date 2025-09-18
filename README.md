@@ -5,7 +5,7 @@ Ce projet est un petit bot Discord qui envoie, en message privé (MP), un récap
 But
 
 - Recevoir automatiquement un récap de ses heures/épisodes regardés sur AniList.
-- Choisir la fréquence : quotidien / mensuel / annuel, ou combinaison.
+- Choisir la fréquence : mensuel / annuel.
 - Gérer facilement l'abonnement depuis le serveur via des commandes `/follow` et `/unfollow`.
 
 Comment suivre
@@ -18,21 +18,24 @@ Suis les étapes pour autoriser l'application. Une fois autorisée, l'applicatio
 
 2. Pour t'abonner, envoie la commande au bot (dans la fenêtre de conversation de l'application ou via l'interface fournie) :
 
-- `/follow username:TON_PSEUDO mask:111` pour t'abonner à tous les récaps (quotidien, mensuel, annuel).
-- Le `mask` est une chaîne de 3 caractères correspondant à `daily monthly yearly`.
-  - `1` = activer, `0` = désactiver, `*` = conserver la valeur actuelle.
-  - Exemple : `1*0` active quotidien, conserve mensuel, désactive annuel.
+- `/follow username:TON_PSEUDO mask:10` pour t'abonner uniquement au récap mensuel.
+- `/follow username:TON_PSEUDO mask:*1` pour ajouter l'abonnement au récap annuel.
+- `/follow username:TON_PSEUDO mask:11` pour t'abonner aux deux (mensuel + annuel).
+
+Le `mask` est maintenant une chaîne de 2 caractères correspondant à `monthly,yearly`.
+- `1` = activer, `0` = désactiver, `*` = conserver la valeur actuelle.
+- Exemple : `1*` active le rapport mensuel et conserve la valeur annuelle.
 
 3. Pour te désabonner, utilise : `/unfollow`.
 
 Notes pratiques
 
-- Le bot envoie les messages en MP. Assure-toi que l'option "Autoriser les MP" aux membres du serveur est activée pour le bot.
-- Si tu veux changer la fréquence, relance `/follow` avec un `mask` adapté (ex: `010` pour seulement mensuel).
+- Le bot envoie les messages en MP. Assure-toi d'avoir tes MP ouverts.
+- Si tu veux changer la fréquence, relance `/follow` avec un `mask` adapté (ex: `10` pour seulement mensuel, `*1` pour ajouter le suivi annuel).
 
 Commande /recap
 
-- `/recap days:NB [username:PSEUDO]` — Envoie immédiatement en MP un récapitulatif pour les `NB` derniers jours.
+- `/recap days:NB [username:PSEUDO]` — Envoie immédiatement en MP un récapitulatif pour les `NB` derniers jours (utile pour tests ou récap manuels).
   - `days` (obligatoire) : nombre de jours à remonter (ex: `7` pour une semaine).
   - `username` (optionnel) : pseudo AniList à utiliser. Si omis, le bot utilisera le pseudo enregistré pour ton `discord_user_id` (si tu t'es déjà abonné via `/follow`).
   - Exemple : `/recap days:30` — envoie un récap des 30 derniers jours pour le pseudo enregistré.

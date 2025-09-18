@@ -52,11 +52,14 @@ export async function fetchAniListActivitiesPaginated(username, perPage = 100, m
           activities(userId: $userId, type: ANIME_LIST) {
             ... on ListActivity {
               createdAt
+              status
               progress
               media {
                 title { romaji english native }
                 duration
                 id
+                status
+                episodes
               }
             }
           }

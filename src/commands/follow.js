@@ -5,7 +5,7 @@ export const data = new SlashCommandBuilder()
   .setName('follow')
   .setDescription('Suivre vos stats AniList en MP')
   .addStringOption(opt => opt.setName('username').setDescription('Votre pseudo AniList').setRequired(true))
-  .addStringOption(opt => opt.setName('mask').setDescription("Masque 3 caractères 'dmy' où 1=set,0=unset,*=laisser tel quel, ex: 1*0").setRequired(true));
+  .addStringOption(opt => opt.setName('mask').setDescription("Masque 2 caractères 'my' (monthly,yearly) où 1=set,0=unset,*=laisser tel quel, ex: 1*").setRequired(true));
 
 async function validateAniListUsername(username) {
   const query = `
@@ -34,16 +34,15 @@ export async function execute(interaction) {
   const mask = interaction.options.getString('mask', true);
 
   // default freqs for this invocation are undefined (so we can merge). We'll compute final flags below.
-  let daily = null, monthly = null, yearly = null;
+  let monthly = null, yearly = null;
   if (mask) {
-    // expect mask length 3: d m y
-    if (!/^[01\*]{3}$/.test(mask)) {
-  await interaction.reply({ content: "Masque invalide. Utilisez 3 caractères parmi 0,1,* (ex: 1*0).", flags: 64 });
+    // expect mask length 2: m y
+    if (!/^[01\*]{2}$/.test(mask)) {
+  await interaction.reply({ content: "Masque invalide. Utilisez 2 caractères parmi 0,1,* (ex: 1*). Format: monthly,yearly.", flags: 64 });
       return;
     }
-    const [d,m,y] = mask.split('');
-    // map: '1' -> set to 1, '0' -> set to 0, '*' -> keep existing (we'll fetch existing later)
-    daily = d === '1' ? true : d === '0' ? false : null;
+    const [m, y] = mask.split('');
+    // map: '1' -> set to true, '0' -> set to false, '*' -> keep existing (we'll fetch existing later)
     monthly = m === '1' ? true : m === '0' ? false : null;
     yearly = y === '1' ? true : y === '0' ? false : null;
   }
@@ -63,8 +62,9 @@ export async function execute(interaction) {
   try {
     // If any of daily/monthly/yearly is null, treat it as 'keep existing' when merge=true in DB function.
     // For new users, null -> false (DB function will treat absence as 0 when writing).
-    await db.addOrUpdateFollower(interaction.user.id, username, { daily, monthly, yearly }, true);
-  await interaction.reply({ content: `Vous êtes suivi pour ${username} (daily:${daily}, monthly:${monthly}, yearly:${yearly}).`, flags: 64 });
+    // daily disabled
+    await db.addOrUpdateFollower(interaction.user.id, username, { daily: false, monthly, yearly }, true);
+  await interaction.reply({ content: `Vous êtes suivi pour ${username} (monthly:${monthly}, yearly:${yearly}).`, flags: 64 });
   } catch (e) {
     logger.error('follow command error', e);
   await interaction.reply({ content: 'Erreur lors de l enregistrement. Voir logs.', flags: 64 });

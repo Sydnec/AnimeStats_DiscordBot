@@ -29,15 +29,15 @@ CREATE TABLE IF NOT EXISTS followers (
 export function addOrUpdateFollower(userId, anilistUsername, freqs, merge = false) {
   const uid = String(userId);
   const desired = {
-    freq_daily: freqs.daily ? 1 : 0,
+    // daily disabled: always force 0
+    freq_daily: 0,
     freq_monthly: freqs.monthly ? 1 : 0,
     freq_yearly: freqs.yearly ? 1 : 0,
   };
   if (merge) {
     const existing = getFollower(uid);
     if (existing) {
-      // OR the flags so we only add new frequencies
-      desired.freq_daily = existing.freq_daily || desired.freq_daily;
+      // daily stays disabled
       desired.freq_monthly = existing.freq_monthly || desired.freq_monthly;
       desired.freq_yearly = existing.freq_yearly || desired.freq_yearly;
     }
