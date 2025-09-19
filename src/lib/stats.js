@@ -1,5 +1,13 @@
 import { logger } from "./logger.js";
 
+// Durée (en minutes) à retirer par épisode pour compenser l'opening + ending.
+// Valeur configurable via ANIMESTATS_OP_ED_MINUTES ou OP_ED_MINUTES (float), défaut 3 minutes.
+const OP_ED_MINUTES = (() => {
+  const raw = process.env.ANIMESTATS_OP_ED_MINUTES ?? process.env.OP_ED_MINUTES ?? '3';
+  const v = parseFloat(raw);
+  return Number.isFinite(v) && !isNaN(v) ? v : 3;
+})();
+
 export function computeStatsFromAniListData(data, startDate, endDate) {
   let totalMinutes = 0;
   let totalEpisodes = 0;
@@ -87,7 +95,10 @@ export function computeStatsFromAniListData(data, startDate, endDate) {
       // récupération du prev tel qu'on le connait jusqu'ici
       let prev = lastProgress.has(mediaId) ? lastProgress.get(mediaId) : null;
       let add = 0;
+      // durée brute fournie par AniList pour l'épisode (minutes) -- fallback 24
       const durationPerEp = (activity.media && activity.media.duration) || 24;
+      // appliquer la soustraction opening+ending (borne inférieure 1 minute)
+      const adjustedDurationPerEp = Math.max(1, durationPerEp - OP_ED_MINUTES);
 
       if (typeof activity.progress !== 'undefined' && activity.progress !== null) {
         // Accept forms like "3", "1-3", "1 - 3", "1 – 3", etc.
@@ -99,10 +110,18 @@ export function computeStatsFromAniListData(data, startDate, endDate) {
           // si prev inconnu, tenter de le retrouver dans les anciennes activités/snapshots
           if (prev === null) {
             const found = findPrevProgress(mediaId, activity.createdAt);
-            if (typeof found === 'number') prev = found;
-            else prev = 0;
+            if (typeof found === 'number') {
+              prev = found;
+              add = Math.max(0, end - prev);
+            } else {
+              // Aucun précédent connu : la plage 'start-end' doit compter pour
+              // (end - start + 1) épisodes (ex: '9-10' -> 2 eps), plutôt que
+              // d'assumer 0->end (qui donnerait end épisodes).
+              add = Math.max(0, end - start + 1);
+            }
+          } else {
+            add = Math.max(0, end - prev);
           }
-          add = Math.max(0, end - prev);
           // mettre à jour lastProgress vers la valeur maximale connue
           lastProgress.set(mediaId, Math.max(prev || 0, end));
           logger.debug(`[ACTIVITY_PARSE] parsed range "${progStr}" -> potential ${end - start + 1} eps, delta vs prev(${prev}) = ${add}`);
@@ -142,7 +161,7 @@ export function computeStatsFromAniListData(data, startDate, endDate) {
 
       // n'ajouter aux totals que si l'activité est dans la période et qu'il y a un delta positif
       if (date >= startDate && date <= endDate && add > 0) {
-        const minutes = add * durationPerEp;
+        const minutes = add * adjustedDurationPerEp;
         totalMinutes += minutes;
         totalEpisodes += add;
 
@@ -233,7 +252,9 @@ export function computeStatsFromAniListData(data, startDate, endDate) {
         }
 
         if (add > 0) {
-          const minutes = add * durationPerEp;
+          // appliquer la soustraction opening+ending (borne inférieure 1 minute)
+          const adjustedDurationPerEp = Math.max(1, durationPerEp - OP_ED_MINUTES);
+          const minutes = add * adjustedDurationPerEp;
           totalEpisodes += add;
           totalMinutes += minutes;
           const day = date.toISOString().split("T")[0];

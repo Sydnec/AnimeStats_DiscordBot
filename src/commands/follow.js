@@ -1,5 +1,6 @@
 import { SlashCommandBuilder } from 'discord.js';
 import * as db from '../db.js';
+import { logger } from '../lib/logger.js';
 
 export const data = new SlashCommandBuilder()
   .setName('follow')
@@ -65,6 +66,22 @@ export async function execute(interaction) {
     // daily disabled
     await db.addOrUpdateFollower(interaction.user.id, username, { daily: false, monthly, yearly }, true);
   await interaction.reply({ content: `Vous êtes suivi pour ${username} (monthly:${monthly}, yearly:${yearly}).`, flags: 64 });
+    // After confirmation, fetch the stored frequencies and send immediate recap(s) for enabled frequencies
+    try {
+      const row = db.getFollower(interaction.user.id);
+      const mod = await import('../index.js');
+      if (row && mod) {
+        if (row.freq_monthly === 1 && typeof mod.sendStatsForUser === 'function') {
+          // fire-and-forget, log errors
+          mod.sendStatsForUser('month', interaction.user.id, username).catch(e => logger.error('sendStatsForUser(month) after follow failed', e));
+        }
+        if (row.freq_yearly === 1 && typeof mod.sendStatsForUser === 'function') {
+          mod.sendStatsForUser('year', interaction.user.id, username).catch(e => logger.error('sendStatsForUser(year) after follow failed', e));
+        }
+      }
+    } catch (e) {
+      logger.error('Error sending initial recap after follow', e);
+    }
   } catch (e) {
     logger.error('follow command error', e);
   await interaction.reply({ content: 'Erreur lors de l enregistrement. Voir logs.', flags: 64 });

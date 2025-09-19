@@ -24,10 +24,14 @@ const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 // map command name -> module
 const commandsMap = new Map();
 
-// fetchAniListData removed; per-user fetch is implemented inside sendStatsForUser
-
-// Génération d'images supprimée — on n'envoie que des récapitulatifs textuels.
-
+// Helper: format minutes as '6h12min' (round minutes). If exactly 0 minutes -> '0h'
+function formatMinutes(mins) {
+  const total = Math.round(Number(mins) || 0);
+  const h = Math.floor(total / 60);
+  const m = total % 60;
+  if (m === 0) return `${h}h`;
+  return `${h}h${m}min`;
+}
 
 // Fonction principale : envoie les stats
 async function sendStatsForUser(
@@ -98,29 +102,37 @@ async function sendStatsForUser(
     const { totalMinutes, totalEpisodes, dailyData, topDay, titles } =
       computeStatsFromAniListData(data, startDate, endDate);
 
+    // Calcul de la moyenne quotidienne en minutes (sur la période considérée)
+    // nombre de jours inclus dans la période (inclusif de startDate et endDate)
+  const msPerDay = 24 * 60 * 60 * 1000;
+  const daysCount = Math.max(1, Math.ceil((endDate.getTime() - startDate.getTime()) / msPerDay));
+    const avgMinutesPerDay = totalMinutes / daysCount;
+
     // Préparer le texte récapitulatif (texte uniquement, pas de fichier)
     let titlesList;
     let content;
-    if (!titles || titles.length === 0) {
+    const totalTimeText = formatMinutes(totalMinutes);
+    const avgTimeText = `${formatMinutes(avgMinutesPerDay)}/j`;
+      if (!titles || titles.length === 0) {
       titlesList = "Aucun anime enregistré";
-      content = `${title}\n⏱️ Temps total : **${(totalMinutes / 60).toFixed(2)} h**\n🎬 Épisodes regardés : **${totalEpisodes}**\n\n${titlesList}`;
+      content = `${title}\n⏱️ Temps total : **${totalTimeText}**\n⏳ Moyenne journalière : **${avgTimeText}**\n🎬 Épisodes regardés : **${totalEpisodes}**\n\n${titlesList}`;
     } else {
       const sorted = titles.slice().sort((a, b) => b.count - a.count);
-      let maxAnimes = 15;
+      let maxAnimes = 10;
       let valid = false;
       do {
         const truncated = sorted.slice(0, maxAnimes);
-        titlesList = `# Animes (top ${maxAnimes}) :\n${truncated.map((t) => `- ${t.title} (${t.count})`).join("\n")}`;
+        titlesList = `# Animes :\n${truncated.map((t) => `- ${t.title} (${t.count})`).join("\n")}`;
         if (sorted.length > maxAnimes) {
           titlesList += `\n...et ${sorted.length - maxAnimes} autres`;
         }
         let topDayText = topDay
-          ? `${new Intl.DateTimeFormat("fr-FR", { dateStyle: "medium" }).format(new Date(topDay))} (${(dailyData[topDay] / 60).toFixed(2)} h)`
+          ? `${new Intl.DateTimeFormat("fr-FR", { dateStyle: "medium" }).format(new Date(topDay))} (${formatMinutes(dailyData[topDay])})`
           : "N/A";
         if (period === "day") {
-          content = `${title}\n⏱️ Temps total : **${(totalMinutes / 60).toFixed(2)} h**\n🎬 Épisodes regardés : **${totalEpisodes}**\n\n${titlesList}`;
+          content = `${title}\n⏱️ Temps total : **${totalTimeText}**\n⏳ Moyenne journalière : **${avgTimeText}**\n🎬 Épisodes regardés : **${totalEpisodes}**\n\n${titlesList}`;
         } else {
-          content = `${title}\n⏱️ Temps total : **${(totalMinutes / 60).toFixed(2)} h**\n🎬 Épisodes regardés : **${totalEpisodes}**\n🔥 Jour le plus actif : **${topDayText}**\n\n${titlesList}`;
+          content = `${title}\n⏱️ Temps total : **${totalTimeText}**\n⏳ Moyenne journalière : **${avgTimeText}**\n🎬 Épisodes regardés : **${totalEpisodes}**\n🔥 Jour le plus actif : **${topDayText}**\n\n${titlesList}`;
         }
         if (content.length <= 4000) valid = true;
         else maxAnimes--;
@@ -149,22 +161,29 @@ export async function sendStatsForUserWithDays(days, discordUserId, anilistUsern
     const { totalMinutes, totalEpisodes, dailyData, topDay, titles } =
       computeStatsFromAniListData(data, startDate, endDate);
 
+    // Calcul de la moyenne journalière pour la période fournie
+  const msPerDay = 24 * 60 * 60 * 1000;
+  const daysCount = Math.max(1, Math.ceil((endDate.getTime() - startDate.getTime()) / msPerDay));
+    const avgMinutesPerDay = totalMinutes / daysCount;
+
     let titlesList;
     let content;
+    const totalTimeText = formatMinutes(totalMinutes);
+    const avgTimeText = `${formatMinutes(avgMinutesPerDay)}/j`;
     if (!titles || titles.length === 0) {
       titlesList = "Aucun anime enregistré";
       content = `📈 Récapitulatif - ${new Intl.DateTimeFormat("fr-FR", {
         dateStyle: "medium",
       }).format(startDate)} → ${new Intl.DateTimeFormat("fr-FR", {
         dateStyle: "medium",
-      }).format(endDate)}\n⏱️ Temps total : **${(totalMinutes / 60).toFixed(2)} h**\n🎬 Épisodes regardés : **${totalEpisodes}**\n\n${titlesList}`;
+      }).format(endDate)}\n⏱️ Temps total : **${totalTimeText}**\n⏳ Moyenne journalière : **${avgTimeText}**\n🎬 Épisodes regardés : **${totalEpisodes}**\n\n${titlesList}`;
     } else {
       const sorted = titles.slice().sort((a, b) => b.count - a.count);
-      let maxAnimes = 15;
+      let maxAnimes = 10;
       let valid = false;
       do {
         const truncated = sorted.slice(0, maxAnimes);
-        titlesList = `# Animes (top ${maxAnimes}) :\n${truncated.map((t) => `- ${t.title} (${t.count})`).join("\n")}`;
+        titlesList = `# Animes :\n${truncated.map((t) => `- ${t.title} (${t.count})`).join("\n")}`;
         if (sorted.length > maxAnimes) {
           titlesList += `\n...et ${sorted.length - maxAnimes} autres`;
         }
@@ -172,10 +191,10 @@ export async function sendStatsForUserWithDays(days, discordUserId, anilistUsern
           dateStyle: "medium",
         }).format(startDate)} → ${new Intl.DateTimeFormat("fr-FR", {
           dateStyle: "medium",
-        }).format(endDate)}\n⏱️ Temps total : **${(totalMinutes / 60).toFixed(2)} h**\n🎬 Épisodes regardés : **${totalEpisodes}**\n`;
+        }).format(endDate)}\n⏱️ Temps total : **${totalTimeText}**\n⏳ Moyenne journalière : **${avgTimeText}**\n🎬 Épisodes regardés : **${totalEpisodes}**\n`;
         if (days > 1) {
           const topDayText = topDay
-            ? `${new Intl.DateTimeFormat("fr-FR", { dateStyle: "medium" }).format(new Date(topDay))} (${(dailyData[topDay] / 60).toFixed(2)} h)`
+            ? `${new Intl.DateTimeFormat("fr-FR", { dateStyle: "medium" }).format(new Date(topDay))} (${formatMinutes(dailyData[topDay])})`
             : "N/A";
           content += `🔥 Jour le plus actif : **${topDayText}**\n`;
         }
