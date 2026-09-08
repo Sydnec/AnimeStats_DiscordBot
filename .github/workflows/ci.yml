@@ -40,10 +40,13 @@ jobs:
           CGO_ENABLED: "0"
         run: go build -trimpath -o /tmp/animestats ./cmd/animestats
 
-      - name: Vérification de l'unité systemd
+      - name: Vérification des unités systemd
         run: |
           sudo install -m0755 /tmp/animestats /usr/local/bin/animestats
-          systemd-analyze verify deploy/animestats.service
+          sudo install -D -m0755 deploy/install.sh /usr/local/lib/animestats/install.sh
+          systemd-analyze verify deploy/animestats.service \
+                                 deploy/animestats-update.service \
+                                 deploy/animestats-update.timer
 
       - name: Vérification du script d'installation
         run: |

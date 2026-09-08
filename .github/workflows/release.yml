@@ -44,7 +44,9 @@ jobs:
         run: |
           name="animestats_${GITHUB_REF_NAME}_linux_${{ matrix.goarch }}"
           install -D -m0755 build/animestats    "pkg/${name}/animestats"
-          install -D -m0644 deploy/animestats.service "pkg/${name}/animestats.service"
+          install -D -m0644 deploy/animestats.service        "pkg/${name}/animestats.service"
+          install -D -m0644 deploy/animestats-update.service "pkg/${name}/animestats-update.service"
+          install -D -m0644 deploy/animestats-update.timer   "pkg/${name}/animestats-update.timer"
           install -D -m0755 deploy/install.sh   "pkg/${name}/install.sh"
           install -D -m0644 deploy/lxc-setup.md "pkg/${name}/lxc-setup.md"
           install -D -m0644 README.md LICENSE .env.example -t "pkg/${name}/"

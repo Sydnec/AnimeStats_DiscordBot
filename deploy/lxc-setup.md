@@ -79,8 +79,11 @@ curl -fsSL https://raw.githubusercontent.com/Sydnec/AnimeStats_DiscordBot/main/d
 
 Le script télécharge la dernière version publiée, **vérifie son empreinte
 SHA-256**, crée l'utilisateur système `animestats`, installe le binaire dans
-`/usr/local/bin`, pose l'unité systemd et écrit un gabarit de configuration.
+`/usr/local/bin`, pose les unités systemd et écrit un gabarit de configuration.
 Il s'arrête avant de démarrer le service tant que le token n'est pas renseigné.
+
+Il active aussi le **minuteur de mise à jour hebdomadaire** (voir §6). Pour ne
+pas l'activer, ajoutez `-s -- --no-auto-update` à la commande.
 
 Pour installer une version précise :
 
@@ -143,22 +146,109 @@ sudo -u animestats /usr/local/bin/animestats -check
 
 ---
 
-## 6. Mettre à jour
+## 6. Mises à jour
 
-Relancez simplement le script d'installation :
+### Automatiques
+
+L'installation pose un minuteur systemd qui **vérifie chaque dimanche vers 4 h du
+matin** s'il existe une version plus récente, et l'applique le cas échéant.
+Cette heure ne croise jamais les fenêtres d'envoi des récapitulatifs — le 1er du
+mois à 10 h, le 1er janvier à midi — donc une mise à jour ne peut pas interrompre
+une diffusion.
+
+Le déroulé d'une vérification :
+
+1. La dernière version publiée est comparée à celle installée. Si elles
+   coïncident, rien n'est téléchargé et le service n'est pas touché.
+2. Sinon l'archive est récupérée, **son empreinte SHA-256 est vérifiée**, et la
+   configuration est validée avec le nouveau binaire avant qu'il ne remplace
+   l'ancien.
+3. Le service redémarre. S'il ne repart pas, **la version précédente est
+   restaurée automatiquement** et relancée : le bot reste en ligne, et l'échec
+   est tracé dans le journal.
+
+Si le conteneur était éteint le dimanche, la vérification se rattrape au
+démarrage suivant.
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Sydnec/AnimeStats_DiscordBot/main/deploy/install.sh \
-  | bash
+# Prochaine échéance et dernière exécution
+systemctl list-timers animestats-update.timer
+
+# Ce qu'a fait la dernière vérification
+journalctl -u animestats-update.service -n 50
+
+# Déclencher une vérification tout de suite
+systemctl start animestats-update.service
 ```
 
-Il ne fait rien si la version en place est déjà la dernière, n'écrase jamais
-`animestats.env`, et refuse de redémarrer le service si la configuration est
-invalide.
+Une vérification sans nouveauté ne laisse aucune trace dans le journal : s'il
+est vide, c'est que tout allait bien.
+
+### Désactiver, ou figer une version
+
+```bash
+# Arrêter les mises à jour automatiques
+systemctl disable --now animestats-update.timer
+
+# Les réactiver
+systemctl enable --now animestats-update.timer
+```
+
+Une fois désactivé, le minuteur n'est **jamais réactivé** par une installation
+ultérieure : le choix est respecté.
+
+### Manuellement
+
+```bash
+# Dernière version publiée
+curl -fsSL https://raw.githubusercontent.com/Sydnec/AnimeStats_DiscordBot/main/deploy/install.sh | bash
+
+# Version précise, ou retour arrière
+curl -fsSL https://raw.githubusercontent.com/Sydnec/AnimeStats_DiscordBot/main/deploy/install.sh | bash -s -- v1.0.0
+```
+
+> Lancez la commande depuis `/root` ou votre répertoire personnel. Si le
+> répertoire courant contient une archive de version décompressée, c'est
+> celle-ci qui sera installée plutôt que la dernière publiée.
 
 ---
 
-## 7. Dépannage
+## 7. Correctifs de sécurité Debian
+
+Le bot se met à jour seul, mais pas le système qui l'héberge. Sur un conteneur
+qu'on ne visite plus, il vaut mieux que les correctifs de sécurité s'appliquent
+d'eux-mêmes. À passer une seule fois, dans le conteneur :
+
+```bash
+apt install -y unattended-upgrades
+
+cat > /etc/apt/apt.conf.d/20auto-upgrades <<'EOF'
+APT::Periodic::Update-Package-Lists "1";
+APT::Periodic::Unattended-Upgrade "1";
+APT::Periodic::AutocleanInterval "7";
+EOF
+
+# Correctifs de sécurité uniquement, et jamais de redémarrage automatique :
+# le conteneur ne doit pas disparaître sans prévenir.
+cat > /etc/apt/apt.conf.d/52animestats-unattended <<'EOF'
+Unattended-Upgrade::Automatic-Reboot "false";
+Unattended-Upgrade::Remove-Unused-Kernel-Packages "true";
+Unattended-Upgrade::Remove-Unused-Dependencies "true";
+EOF
+
+systemctl enable --now unattended-upgrades
+```
+
+Pour vérifier, sans rien appliquer :
+
+```bash
+unattended-upgrade --dry-run --debug | tail -20
+journalctl -u unattended-upgrades -n 30
+```
+
+---
+
+## 8. Dépannage
 
 **Le service échoue avec `status=226/NAMESPACE`**
 
@@ -197,6 +287,19 @@ test : la publication y est instantanée.
 Vérifiez aussi, dans le portail développeur, que le champ *Interactions
 Endpoint URL* est **vide** : s'il est renseigné, Discord cesse d'envoyer les
 interactions par la passerelle et le bot ne reçoit plus rien.
+
+**Une mise à jour automatique a échoué**
+
+```bash
+systemctl --failed
+journalctl -u animestats-update.service -n 50
+```
+
+Si le message indique qu'une version a été *restaurée*, le retour arrière a
+fonctionné : le bot tourne sur la version précédente et c'est la nouvelle qui
+est fautive. Vérifiez la version en place avec `animestats -version`, puis
+signalez le problème avant de relancer une mise à jour — le minuteur retentera
+sinon la même version défaillante le dimanche suivant.
 
 **Voir ce que consomme le bot**
 

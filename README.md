@@ -109,9 +109,22 @@ curl -fsSL https://raw.githubusercontent.com/Sydnec/AnimeStats_DiscordBot/main/d
 sudo systemctl enable --now animestats
 ```
 
-Le même script sert aux mises à jour : il ne fait rien si la version en place
-est déjà la dernière, n'écrase jamais la configuration, et refuse d'installer
-une version dont la configuration ne passe pas la vérification.
+Les mises à jour sont ensuite **automatiques** : un minuteur systemd vérifie
+chaque dimanche vers 4 h s'il existe une version plus récente et l'applique. Si
+le service ne redémarre pas, la version précédente est restaurée et le bot reste
+en ligne. Une vérification sans nouveauté ne télécharge rien, ne redémarre rien
+et ne laisse aucune trace dans le journal.
+
+```bash
+systemctl list-timers animestats-update.timer     # prochaine échéance
+systemctl start animestats-update.service         # vérifier tout de suite
+systemctl disable --now animestats-update.timer   # repasser en manuel
+```
+
+Le même script sert aux mises à jour manuelles et au retour arrière
+(`… | sudo bash -s -- v1.0.0`) : il n'écrase jamais la configuration ni la base,
+et refuse d'installer une version dont la configuration ne passe pas la
+vérification.
 
 ## Configuration
 
@@ -182,7 +195,7 @@ internal/scheduler  tâches planifiées et rattrapage
 internal/store      persistance SQLite
 internal/mask       masque d'abonnement de /follow
 internal/config     configuration
-deploy/             unité systemd, script d'installation, guide LXC
+deploy/             unités systemd, script d'installation, guide LXC
 ```
 
 ## Publier une version
