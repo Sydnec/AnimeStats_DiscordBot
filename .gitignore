@@ -1,0 +1,19 @@
+# Binaires de build
+/bin/
+/dist/
+animestats
+
+# Données locales
+/data/
+*.db
+*.db-wal
+*.db-shm
+
+# Configuration locale
+.env
+.env.*
+!.env.example
+
+# Outils
+*.out
+coverage.html
