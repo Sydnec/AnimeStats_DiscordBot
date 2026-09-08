@@ -1,0 +1,26 @@
+[Unit]
+Description=Mise à jour automatique du bot AnimeStats
+Documentation=https://github.com/Sydnec/AnimeStats_DiscordBot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+
+# Lancée en root : l'unité écrit dans /usr/local/bin, pose des unités systemd et
+# redémarre le service. Elle ne peut donc pas être confinée comme l'est le bot
+# lui-même.
+#
+# Le script exécuté est la copie locale installée par la version en place, et
+# non un fichier téléchargé à chaud : faire tourner en root, chaque semaine et
+# sans surveillance, un script tiré de la branche principale reviendrait à
+# exécuter n'importe quel commit de celle-ci.
+ExecStart=/usr/local/lib/animestats/install.sh --auto
+
+# Large de côté : le téléchargement d'une archive de quelques mégaoctets sur une
+# connexion domestique lente doit tenir, mais rien ne doit rester bloqué.
+TimeoutStartSec=15min
+
+# Une mise à jour ratée ne doit pas passer inaperçue.
+StandardOutput=journal
+StandardError=journal

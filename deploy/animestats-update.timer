@@ -1,0 +1,21 @@
+[Unit]
+Description=Vérification hebdomadaire des mises à jour d'AnimeStats
+Documentation=https://github.com/Sydnec/AnimeStats_DiscordBot
+
+[Timer]
+# Le dimanche à 4 h du matin : loin des fenêtres d'envoi des récapitulatifs,
+# le 1er du mois à 10 h et le 1er janvier à midi. Une mise à jour ne peut donc
+# pas interrompre une diffusion en cours.
+OnCalendar=Sun *-*-* 04:00:00
+
+# Étale le déclenchement pour ne pas taper l'API GitHub à la seconde près.
+RandomizedDelaySec=30min
+
+# Rattrape la vérification au démarrage si le conteneur était éteint au moment
+# prévu.
+Persistent=true
+
+Unit=animestats-update.service
+
+[Install]
+WantedBy=timers.target
