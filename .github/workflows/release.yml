@@ -1,0 +1,85 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Compilation ${{ matrix.goarch }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: true
+      matrix:
+        goarch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Tests
+        run: go test ./... -count=1
+
+      - name: Compilation
+        env:
+          CGO_ENABLED: "0"
+          GOOS: linux
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          version="${GITHUB_REF_NAME}"
+          go build -trimpath \
+            -ldflags "-s -w -X main.version=${version}" \
+            -o build/animestats ./cmd/animestats
+          # Le binaire doit être autonome : c'est tout l'intérêt du déploiement
+          # dans un LXC sans environnement d'exécution installé.
+          file build/animestats | grep -q 'statically linked'
+
+      - name: Archive
+        run: |
+          name="animestats_${GITHUB_REF_NAME}_linux_${{ matrix.goarch }}"
+          install -D -m0755 build/animestats    "pkg/${name}/animestats"
+          install -D -m0644 deploy/animestats.service "pkg/${name}/animestats.service"
+          install -D -m0755 deploy/install.sh   "pkg/${name}/install.sh"
+          install -D -m0644 deploy/lxc-setup.md "pkg/${name}/lxc-setup.md"
+          install -D -m0644 README.md LICENSE .env.example -t "pkg/${name}/"
+          tar -C pkg -czf "${name}.tar.gz" "${name}"
+          sha256sum "${name}.tar.gz" > "${name}.tar.gz.sha256"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ matrix.goarch }}
+          path: |
+            *.tar.gz
+            *.tar.gz.sha256
+
+  release:
+    name: Publication
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: dist-*
+          merge-multiple: true
+          path: dist
+
+      - name: Empreintes regroupées
+        # install.sh consomme un unique fichier SHA256SUMS.
+        run: |
+          cd dist
+          cat ./*.sha256 | sort -k2 > SHA256SUMS
+          rm -f ./*.sha256
+          cat SHA256SUMS
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.tar.gz
+            dist/SHA256SUMS
+          generate_release_notes: true
