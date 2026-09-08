@@ -156,9 +156,10 @@ Dans le portail développeur, pour votre application :
 ## Développement
 
 ```bash
-make test    # go test ./... -race -cover
+make test    # tests avec détecteur de compétition
+make cover   # couverture (nécessite un SDK Go complet)
 make lint    # gofmt + go vet
-make build   # binaire dans bin/
+make build   # binaire statique dans bin/
 make run     # lance le bot
 make dist    # binaires linux/amd64 et linux/arm64 dans dist/
 ```
