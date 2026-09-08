@@ -108,7 +108,17 @@ func (s *Scheduler) run(ctx context.Context, job Job) {
 		return
 	}
 	p := job.Build(time.Now(), s.loc)
-	s.reports.Broadcast(ctx, job.Freq, p)
+	sent, failed := s.reports.Broadcast(ctx, job.Freq, p)
+
+	// Une diffusion interrompue par l'arrêt du service n'est pas une diffusion
+	// faite : ne pas marquer la période, pour que le rattrapage la reprenne au
+	// prochain démarrage. Quelques abonnés déjà servis recevront un doublon,
+	// ce qui vaut mieux que de les priver tous du récapitulatif.
+	if ctx.Err() != nil {
+		s.log.Warn("diffusion interrompue, la période sera reprise au prochain démarrage",
+			"tâche", job.Key, "période", p.Key, "envoyés", sent, "échecs", failed)
+		return
+	}
 
 	if err := s.store.MarkJobRun(ctx, job.Key, p.Key); err != nil {
 		s.log.Error("suivi de la tâche non enregistré", "tâche", job.Key, "erreur", err)
