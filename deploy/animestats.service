@@ -1,0 +1,64 @@
+[Unit]
+Description=AnimeStats — bot Discord de statistiques AniList
+Documentation=https://github.com/Sydnec/AnimeStats_DiscordBot
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=exec
+User=animestats
+Group=animestats
+ExecStart=/usr/local/bin/animestats
+EnvironmentFile=/etc/animestats/animestats.env
+WorkingDirectory=/var/lib/animestats
+
+# Crée et possède /var/lib/animestats, où réside la base SQLite.
+StateDirectory=animestats
+StateDirectoryMode=0750
+
+Restart=on-failure
+RestartSec=10s
+TimeoutStopSec=30s
+KillSignal=SIGTERM
+
+# --- Durcissement ---
+# Ces directives fonctionnent dans un conteneur LXC non privilégié à condition
+# d'avoir activé l'option « nesting » (voir deploy/lxc-setup.md).
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectControlGroups=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+# Sans effet de bord pour Go, qui ne génère pas de code à l'exécution.
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @obsolete
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+UMask=0077
+LimitNOFILE=4096
+MemoryMax=256M
+TasksMax=64
+
+# Les directives ci-dessous durcissent davantage mais réclament des espaces de
+# noms que tous les conteneurs LXC n'accordent pas. Si le service échoue avec
+# « status=226/NAMESPACE », laissez-les commentées.
+#PrivateDevices=yes
+#ProtectClock=yes
+#ProtectHostname=yes
+#ProtectKernelTunables=yes
+#ProtectProc=invisible
+#ProcSubset=pid
+
+[Install]
+WantedBy=multi-user.target
