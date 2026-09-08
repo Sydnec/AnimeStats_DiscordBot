@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/Sydnec/AnimeStats_DiscordBot/internal/logging"
+	"github.com/Sydnec/AnimeStats_DiscordBot/internal/stats"
 )
 
 // Valeurs par défaut. DefaultDBPath vise l'emplacement utilisé par l'unit
@@ -39,6 +40,9 @@ type Config struct {
 
 	LogLevel          slog.Level
 	SendRecapOnFollow bool
+	// CatchUpMissedRuns rattrape au démarrage un envoi planifié manqué,
+	// typiquement si la machine était éteinte à l'heure prévue.
+	CatchUpMissedRuns bool
 
 	MonthlyCron string
 	YearlyCron  string
@@ -92,6 +96,10 @@ func Load() (Config, error) {
 	}
 
 	if cfg.SendRecapOnFollow, err = envBool("SEND_RECAP_ON_FOLLOW", true); err != nil {
+		return Config{}, err
+	}
+
+	if cfg.CatchUpMissedRuns, err = envBool("CATCHUP_MISSED_RUNS", true); err != nil {
 		return Config{}, err
 	}
 
@@ -162,4 +170,27 @@ func envDuration(key string, def time.Duration) (time.Duration, error) {
 		return 0, fmt.Errorf("%s=%q ne peut pas être négatif", key, raw)
 	}
 	return d, nil
+}
+
+// StatsOptions traduit la configuration pour le moteur de statistiques.
+func (c Config) StatsOptions() stats.Options {
+	return stats.Options{OpEdMinutes: c.OpEdMinutes, Location: c.Location}
+}
+
+// LogValue masque le token dans les journaux : une configuration peut être
+// journalisée au démarrage, jamais le secret qu'elle contient.
+func (c Config) LogValue() slog.Value {
+	return slog.GroupValue(
+		slog.String("db_path", c.DBPath),
+		slog.String("timezone", c.Location.String()),
+		slog.Float64("op_ed_minutes", c.OpEdMinutes),
+		slog.Int("anilist_max_pages", c.AniListMaxPages),
+		slog.Duration("anilist_cache_ttl", c.AniListCacheTTL),
+		slog.String("log_level", c.LogLevel.String()),
+		slog.Bool("send_recap_on_follow", c.SendRecapOnFollow),
+		slog.Bool("catchup_missed_runs", c.CatchUpMissedRuns),
+		slog.String("monthly_cron", c.MonthlyCron),
+		slog.String("yearly_cron", c.YearlyCron),
+		slog.Bool("dev_guild", c.DevGuildID != ""),
+	)
 }

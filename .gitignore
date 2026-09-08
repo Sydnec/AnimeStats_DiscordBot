@@ -1,7 +1,9 @@
 # Binaires de build
 /bin/
 /dist/
-animestats
+# Ancré à la racine : sans la barre oblique, ce motif masquerait aussi le
+# paquet cmd/animestats.
+/animestats
 
 # Données locales
 /data/
