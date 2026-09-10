@@ -23,6 +23,14 @@ const Endpoint = "https://graphql.anilist.co"
 // ErrUserNotFound signale un pseudo AniList inexistant.
 var ErrUserNotFound = errors.New("utilisateur AniList introuvable")
 
+// ErrUnavailable signale une indisponibilité passagère d'AniList : panne,
+// coupure réseau ou quota dépassé, une fois toutes les tentatives épuisées.
+//
+// La distinction compte pour l'appelant : réessayer plus tard a un sens ici,
+// alors qu'un pseudo introuvable ou une requête invalide ne s'arrangeront pas
+// tout seuls.
+var ErrUnavailable = errors.New("AniList est momentanément indisponible")
+
 const (
 	// AniList annonce 90 requêtes/minute mais fonctionne depuis longtemps en
 	// mode dégradé à 30/minute. On se cale sur la valeur basse.
@@ -30,7 +38,6 @@ const (
 	defaultBurst         = 5
 	defaultAttempts      = 4
 	defaultTimeout       = 30 * time.Second
-	perPage              = 100
 	// Pages supplémentaires récupérées au-delà de la date de début : elles
 	// fournissent la progression antérieure nécessaire au calcul des deltas.
 	lookbehindPages = 1
@@ -152,7 +159,13 @@ func (c *Client) execute(ctx context.Context, query string, variables map[string
 	var lastErr error
 	for attempt := 1; attempt <= c.attempts; attempt++ {
 		if err := c.limiter.Wait(ctx); err != nil {
-			return err
+			// Le limiteur signale un délai trop court par une erreur qui
+			// n'enveloppe pas celle du contexte : on rend l'originale, sans
+			// quoi l'appelant ne peut pas reconnaître un dépassement de délai.
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return ctxErr
+			}
+			return fmt.Errorf("%w : %w", ErrUnavailable, err)
 		}
 
 		err := c.attempt(ctx, body, out)
@@ -162,8 +175,11 @@ func (c *Client) execute(ctx context.Context, query string, variables map[string
 		lastErr = err
 
 		var retry *retryableError
-		if !errors.As(err, &retry) || attempt == c.attempts {
+		if !errors.As(err, &retry) {
 			return err
+		}
+		if attempt == c.attempts {
+			break
 		}
 
 		delay := retry.after
@@ -180,7 +196,10 @@ func (c *Client) execute(ctx context.Context, query string, variables map[string
 		case <-time.After(delay):
 		}
 	}
-	return lastErr
+	// Toutes les tentatives ont échoué sur une erreur passagère : le signaler
+	// explicitement permet de conseiller un nouvel essai plutôt qu'une
+	// correction impossible côté utilisateur.
+	return fmt.Errorf("%w : %w", ErrUnavailable, lastErr)
 }
 
 func (c *Client) attempt(ctx context.Context, body []byte, out any) error {
@@ -199,7 +218,7 @@ func (c *Client) attempt(ctx context.Context, body []byte, out any) error {
 	}
 	defer res.Body.Close()
 
-	// 1 Mio suffit très largement pour une page de 100 activités et borne la
+	// 1 Mio suffit très largement pour une page d'activités et borne la
 	// mémoire en cas de réponse anormale.
 	payload, err := io.ReadAll(io.LimitReader(res.Body, 1<<20))
 	if err != nil {

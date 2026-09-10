@@ -254,6 +254,84 @@ func TestRetryOn5xxThenGivesUp(t *testing.T) {
 	}
 }
 
+// TestUnavailableAfterRetries : une panne persistante doit se distinguer d'une
+// requête invalide, pour que l'appelant sache qu'un nouvel essai a du sens.
+func TestUnavailableAfterRetries(t *testing.T) {
+	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadGateway)
+	}, Options{Attempts: 2})
+
+	_, err := c.UserID(context.Background(), "Sydnec")
+	if !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("erreur = %v, attendu ErrUnavailable", err)
+	}
+	// La cause d'origine reste lisible dans la chaîne.
+	if !strings.Contains(err.Error(), "502") {
+		t.Errorf("erreur = %v, le statut HTTP d'origine était attendu", err)
+	}
+}
+
+// TestQuotaExceededIsUnavailable : un 429 jamais résorbé relève lui aussi de
+// l'indisponibilité passagère.
+func TestQuotaExceededIsUnavailable(t *testing.T) {
+	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Retry-After", "0")
+		w.WriteHeader(http.StatusTooManyRequests)
+	}, Options{Attempts: 2})
+
+	if _, err := c.UserID(context.Background(), "Sydnec"); !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("erreur = %v, attendu ErrUnavailable", err)
+	}
+}
+
+// TestPermanentErrorsAreNotUnavailable : un pseudo inexistant ou une requête
+// refusée ne s'arrangeront pas d'eux-mêmes ; les marquer « indisponible »
+// conseillerait à tort de réessayer.
+func TestPermanentErrorsAreNotUnavailable(t *testing.T) {
+	notFound := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		fmt.Fprint(w, `{"data":null,"errors":[{"message":"Not Found.","status":404}]}`)
+	}, Options{})
+
+	_, err := notFound.UserID(context.Background(), "personne")
+	if errors.Is(err, ErrUnavailable) {
+		t.Errorf("un pseudo introuvable ne devrait pas être « indisponible » : %v", err)
+	}
+
+	badQuery := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `{"data":null,"errors":[{"message":"Champ invalide","status":400}]}`)
+	}, Options{})
+
+	if _, err := badQuery.UserID(context.Background(), "Sydnec"); errors.Is(err, ErrUnavailable) {
+		t.Errorf("une requête invalide ne devrait pas être « indisponible » : %v", err)
+	}
+}
+
+// TestPageSizeStaysWithinAniListLimit : l'API plafonne perPage à 50, une valeur
+// supérieure n'est pas garantie d'être rognée en silence.
+func TestPageSizeStaysWithinAniListLimit(t *testing.T) {
+	now := time.Now()
+	var got int64
+	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		query, vars := readQuery(t, r)
+		if strings.Contains(query, "User(name") {
+			fmt.Fprint(w, `{"data":{"User":{"id":1}}}`)
+			return
+		}
+		perPage, _ := vars["perPage"].(float64)
+		atomic.StoreInt64(&got, int64(perPage))
+		fmt.Fprintf(w, `{"data":{"Page":{"pageInfo":{"hasNextPage":false},"activities":[%s]}}}`,
+			activityJSON(1, now.Add(-time.Hour).Unix(), "3"))
+	}, Options{})
+
+	if _, err := c.Activities(context.Background(), "Sydnec", FetchOptions{Since: now.Add(-2 * time.Hour)}); err != nil {
+		t.Fatalf("Activities : %v", err)
+	}
+	if v := atomic.LoadInt64(&got); v < 1 || v > 50 {
+		t.Errorf("perPage = %d, attendu au plus 50", v)
+	}
+}
+
 func TestGraphQLErrorIsReported(t *testing.T) {
 	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, `{"data":null,"errors":[{"message":"Champ invalide","status":400}]}`)

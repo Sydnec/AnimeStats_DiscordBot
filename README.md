@@ -65,6 +65,19 @@ Supprime votre abonnement et les données associées.
 | `days` | Nombre de jours à couvrir, de 1 à 365 |
 | `username` | Pseudo AniList à utiliser (facultatif : par défaut le vôtre, s'il est enregistré) |
 
+### Si le récap n'arrive pas
+
+La réponse du bot indique ce qui a échoué, et donc s'il sert à quelque chose de
+réessayer.
+
+| Réponse | Cause | Quoi faire |
+| --- | --- | --- |
+| *Pseudo AniList introuvable* | Le compte AniList a été renommé, supprimé, ou le pseudo est mal orthographié | Corriger l'option `username`, ou refaire un `/follow` |
+| *AniList ne répond pas* | Panne d'AniList, ou quota de requêtes dépassé | Réessayer dans quelques minutes |
+| *Le récapitulatif a mis trop de temps* | Le calcul a dépassé deux minutes, typiquement sur une longue période | Réessayer, ou demander moins de jours |
+| *Impossible de vous écrire en message privé* | Vos MP sont fermés pour ce bot | Ouvrir vos messages privés, puis réessayer |
+| *Impossible de produire le récapitulatif* | Cause imprévue | Consulter le journal du service (`journalctl -u animestats`) |
+
 ## Quand partent les récapitulatifs
 
 | Fréquence | Envoi | Période couverte |
@@ -138,7 +151,7 @@ production par `/etc/animestats/animestats.env`. En développement, un fichier
 | `DB_PATH` | `/var/lib/animestats/animestats.db` | Base SQLite ; le dossier est créé au besoin |
 | `TZ` | `Europe/Paris` | Fuseau des tâches planifiées et du découpage par jour |
 | `OP_ED_MINUTES` | `3` | Minutes retirées par épisode pour l'opening et l'ending |
-| `ANILIST_MAX_PAGES` | `20` | Garde-fou de pagination, par pages de 100 activités |
+| `ANILIST_MAX_PAGES` | `20` | Garde-fou de pagination, par pages de 50 activités (maximum de l’API) |
 | `ANILIST_CACHE_TTL` | `0` | Cache mémoire des activités (`5m`, `90s`, ou un nombre de secondes) |
 | `LOG_LEVEL` | `info` | `debug`, `info`, `warn` ou `error` |
 | `SEND_RECAP_ON_FOLLOW` | `true` | Récapitulatif immédiat après un `/follow` |

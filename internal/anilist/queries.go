@@ -9,7 +9,12 @@ import (
 	"time"
 )
 
-const perPageDefault = 100
+// perPageDefault est la taille de page demandée à AniList.
+//
+// L'API plafonne perPage à 50 : demander davantage n'apportait rien et
+// dépendait du bon vouloir du serveur, qui est libre de refuser la requête
+// plutôt que de rogner la valeur en silence.
+const perPageDefault = 50
 
 // DefaultLookback est la marge d'historique récupérée au-delà du début de la
 // période demandée. Le moteur de statistiques compte des deltas de progression :

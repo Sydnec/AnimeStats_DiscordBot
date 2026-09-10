@@ -10,6 +10,7 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 
+	"github.com/Sydnec/AnimeStats_DiscordBot/internal/anilist"
 	"github.com/Sydnec/AnimeStats_DiscordBot/internal/mask"
 	"github.com/Sydnec/AnimeStats_DiscordBot/internal/period"
 	"github.com/Sydnec/AnimeStats_DiscordBot/internal/store"
@@ -26,7 +27,40 @@ const (
 	msgInternal      = "Erreur interne. Réessayez plus tard."
 	msgDMRefused     = "Impossible de vous écrire en message privé. Ouvrez vos MP pour ce bot, puis réessayez."
 	msgDaysInvalid   = "Nombre de jours invalide (1 à 365)."
+
+	// Causes d'échec d'un récapitulatif. Les distinguer évite de renvoyer
+	// « réessayez plus tard » à qui n'a rien à gagner à réessayer.
+	msgAniListGone    = "Pseudo AniList introuvable : il a peut-être été renommé ou supprimé. Vérifiez l'orthographe, ou mettez à jour votre abonnement avec `/follow`."
+	msgAniListDown    = "AniList ne répond pas (panne ou quota de requêtes dépassé). Réessayez dans quelques minutes."
+	msgRecapTooLong   = "Le récapitulatif a mis trop de temps à se calculer. Réessayez, ou demandez une période plus courte."
+	msgRecapFailed    = "Impossible de produire le récapitulatif pour le moment. Réessayez plus tard."
+	msgRecapPartial   = "Un récapitulatif vous a été envoyé, mais un autre a échoué."
+	msgRecapDelivered = "Un récapitulatif vient de vous être envoyé en message privé."
 )
+
+// recapFailure traduit l'échec d'un envoi de récapitulatif en un message
+// exploitable.
+//
+// Toutes les causes aboutissaient auparavant au même « réessayez plus tard »,
+// qui ne disait ni ce qui avait échoué ni si réessayer avait la moindre
+// chance d'aboutir : un pseudo AniList devenu introuvable ne se répare qu'avec
+// un `/follow`, jamais avec un nouvel essai.
+func recapFailure(err error) string {
+	switch {
+	case errors.Is(err, ErrDMRefused):
+		return msgDMRefused
+	case errors.Is(err, anilist.ErrUserNotFound):
+		return msgAniListGone
+	// Le dépassement de délai passe avant l'indisponibilité : il peut être
+	// enveloppé par elle quand le contexte expire au milieu des réessais.
+	case errors.Is(err, context.DeadlineExceeded):
+		return msgRecapTooLong
+	case errors.Is(err, anilist.ErrUnavailable):
+		return msgAniListDown
+	default:
+		return msgRecapFailed
+	}
+}
 
 // onInteraction accuse réception puis traite la commande à part.
 //
@@ -163,19 +197,30 @@ func (b *Bot) handleFollow(ctx context.Context, log *slog.Logger, userID string,
 		periods = append(periods, period.PreviousYear(now, b.cfg.Location))
 	}
 
-	var refused bool
+	// Un échec ne doit pas être annoncé comme un envoi réussi : le premier
+	// motif rencontré est rendu à l'utilisateur.
+	var (
+		sent    int
+		failure string
+	)
 	for _, p := range periods {
 		if err := b.reports.Send(ctx, userID, username, p); err != nil {
-			if errors.Is(err, ErrDMRefused) {
-				refused = true
-			}
 			log.Error("récapitulatif initial non envoyé", "période", p.Key, "erreur", err)
+			if failure == "" {
+				failure = recapFailure(err)
+			}
+			continue
 		}
+		sent++
 	}
-	if refused {
-		return msg + "\n" + msgDMRefused, nil
+	switch {
+	case failure == "":
+		return msg + "\n" + msgRecapDelivered, nil
+	case sent > 0:
+		return msg + "\n" + msgRecapPartial + "\n" + failure, nil
+	default:
+		return msg + "\n" + failure, nil
 	}
-	return msg + "\nUn récapitulatif vient de vous être envoyé en message privé.", nil
 }
 
 func (b *Bot) handleUnfollow(ctx context.Context, userID string) (string, error) {
@@ -217,11 +262,8 @@ func (b *Bot) handleRecap(ctx context.Context, log *slog.Logger, userID string, 
 
 	p := period.LastDays(time.Now(), b.cfg.Location, days)
 	if err := b.reports.Send(ctx, userID, username, p); err != nil {
-		if errors.Is(err, ErrDMRefused) {
-			return msgDMRefused, nil
-		}
 		log.Error("récapitulatif non envoyé", "pseudo", username, "jours", days, "erreur", err)
-		return "Impossible de produire le récapitulatif pour le moment. Réessayez plus tard.", nil
+		return recapFailure(err), nil
 	}
 	return fmt.Sprintf("Récapitulatif des %d derniers jours envoyé en message privé.", days), nil
 }
