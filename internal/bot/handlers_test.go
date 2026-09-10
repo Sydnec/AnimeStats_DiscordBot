@@ -1,9 +1,14 @@
 package bot
 
 import (
+	"context"
+	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/bwmarrin/discordgo"
+
+	"github.com/Sydnec/AnimeStats_DiscordBot/internal/anilist"
 )
 
 // TestInvoker couvre la différence entre message privé et serveur : discordgo
@@ -74,5 +79,43 @@ func TestIsDiscordError(t *testing.T) {
 func TestOnOff(t *testing.T) {
 	if onOff(true) != "activé" || onOff(false) != "désactivé" {
 		t.Error("libellés d'état inattendus")
+	}
+}
+
+// TestRecapFailure vérifie que chaque cause d'échec reçoit son propre message :
+// c'est tout l'intérêt de la fonction, un message unique ne disant ni ce qui a
+// échoué ni si réessayer sert à quelque chose.
+func TestRecapFailure(t *testing.T) {
+	// Les erreurs traversent report.Service, qui les enveloppe : la
+	// classification doit résister à l'emballage.
+	wrap := func(err error) error {
+		return fmt.Errorf("calcul du récapitulatif de Sydnec : %w", err)
+	}
+
+	tests := []struct {
+		name string
+		err  error
+		want string
+	}{
+		{"MP refusés", wrap(fmt.Errorf("%w : 50007", ErrDMRefused)), msgDMRefused},
+		{"pseudo introuvable", wrap(anilist.ErrUserNotFound), msgAniListGone},
+		{"AniList indisponible", wrap(fmt.Errorf("%w : 502", anilist.ErrUnavailable)), msgAniListDown},
+		{"délai dépassé", wrap(context.DeadlineExceeded), msgRecapTooLong},
+		{
+			// Le contexte peut expirer au milieu des réessais : le dépassement
+			// de délai prime alors sur l'indisponibilité qui l'enveloppe.
+			name: "délai dépassé sous indisponibilité",
+			err:  wrap(fmt.Errorf("%w : %w", anilist.ErrUnavailable, context.DeadlineExceeded)),
+			want: msgRecapTooLong,
+		},
+		{"cause inconnue", wrap(errors.New("boum")), msgRecapFailed},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := recapFailure(tc.err); got != tc.want {
+				t.Errorf("recapFailure = %q, attendu %q", got, tc.want)
+			}
+		})
 	}
 }

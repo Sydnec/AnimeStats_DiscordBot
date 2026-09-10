@@ -65,6 +65,19 @@ Supprime votre abonnement et les données associées.
 | `days` | Nombre de jours à couvrir, de 1 à 365 |
 | `username` | Pseudo AniList à utiliser (facultatif : par défaut le vôtre, s'il est enregistré) |
 
+### Si le récap n'arrive pas
+
+La réponse du bot indique ce qui a échoué, et donc s'il sert à quelque chose de
+réessayer.
+
+| Réponse | Cause | Quoi faire |
+| --- | --- | --- |
+| *Pseudo AniList introuvable* | Le compte AniList a été renommé, supprimé, ou le pseudo est mal orthographié | Corriger l'option `username`, ou refaire un `/follow` |
+| *AniList ne répond pas* | Panne d'AniList, ou quota de requêtes dépassé | Réessayer dans quelques minutes |
+| *Le récapitulatif a mis trop de temps* | Le calcul a dépassé deux minutes, typiquement sur une longue période | Réessayer, ou demander moins de jours |
+| *Impossible de vous écrire en message privé* | Vos MP sont fermés pour ce bot | Ouvrir vos messages privés, puis réessayer |
+| *Impossible de produire le récapitulatif* | Cause imprévue | Consulter le journal du service (`journalctl -u animestats`) |
+
 ## Quand partent les récapitulatifs
 
 | Fréquence | Envoi | Période couverte |
