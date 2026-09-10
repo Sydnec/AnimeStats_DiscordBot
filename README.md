@@ -151,7 +151,7 @@ production par `/etc/animestats/animestats.env`. En développement, un fichier
 | `DB_PATH` | `/var/lib/animestats/animestats.db` | Base SQLite ; le dossier est créé au besoin |
 | `TZ` | `Europe/Paris` | Fuseau des tâches planifiées et du découpage par jour |
 | `OP_ED_MINUTES` | `3` | Minutes retirées par épisode pour l'opening et l'ending |
-| `ANILIST_MAX_PAGES` | `20` | Garde-fou de pagination, par pages de 100 activités |
+| `ANILIST_MAX_PAGES` | `20` | Garde-fou de pagination, par pages de 50 activités (maximum de l’API) |
 | `ANILIST_CACHE_TTL` | `0` | Cache mémoire des activités (`5m`, `90s`, ou un nombre de secondes) |
 | `LOG_LEVEL` | `info` | `debug`, `info`, `warn` ou `error` |
 | `SEND_RECAP_ON_FOLLOW` | `true` | Récapitulatif immédiat après un `/follow` |
