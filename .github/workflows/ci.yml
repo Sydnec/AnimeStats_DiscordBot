@@ -4,6 +4,12 @@ on:
   push:
     branches: ["**"]
   pull_request:
+  # Un avis de vulnérabilité paraît sans que le dépôt bouge : le passage
+  # hebdomadaire (branche par défaut uniquement) relance l'analyse seule. Le
+  # jeudi laisse le temps de publier un correctif avant l'installation
+  # automatique du dimanche.
+  schedule:
+    - cron: "17 6 * * 4"
 
 permissions:
   contents: read
@@ -11,6 +17,8 @@ permissions:
 jobs:
   build:
     name: Vérifications
+    # Le reste ne dépend que du code : inutile de le rejouer chaque semaine.
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -53,3 +61,21 @@ jobs:
           bash -n deploy/install.sh
           sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
           shellcheck deploy/install.sh
+
+  vulns:
+    name: Vulnérabilités connues
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # Outil épinglé : seule la base d'avis, toujours à jour, doit pouvoir
+      # faire échouer ce contrôle. Il juge la bibliothèque standard de la
+      # chaîne installée ci-dessus, donc celle des releases, et n'échoue que
+      # si le code appelle réellement une fonction vulnérable.
+      - name: Analyse govulncheck
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
